@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emulador Enigma I (1930)</title>
+    <style>
+        :root {
+            --bg-color: #2c3e50;
+            --panel-color: #34495e;
+            --text-color: #ecf0f1;
+            --accent-color: #e67e22;
+            --button-hover: #d35400;
+        }
+
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background-color: var(--panel-color);
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            width: 90%;
+            max-width: 600px;
+            text-align: center;
+            border: 2px solid #7f8c8d;
+        }
+
+        h1, h2 {
+            border-bottom: 1px solid #7f8c8d;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .control-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+        }
+
+        select, input[type="text"], button {
+            padding: 10px;
+            border-radius: 5px;
+            border: none;
+            font-family: inherit;
+            font-size: 1rem;
+        }
+
+        select, input[type="text"] {
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            cursor: pointer;
+            width: 100%;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background-color: var(--button-hover);
+        }
+
+        .rotor-selector-container {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .rotor-select-wrapper {
+            flex: 1;
+            min-width: 80px;
+        }
+
+        #outputLabel {
+            background-color: #222;
+            padding: 15px;
+            border: 1px dashed #7f8c8d;
+            margin-top: 20px;
+            word-break: break-all;
+            min-height: 24px;
+            font-size: 1.2rem;
+            color: #f1c40f; 
+        }
+
+        .error {
+            color: #e74c3c;
+            font-size: 0.9rem;
+            margin-top: 5px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div id="view-setup">
+            <h1>Enigma I (1930)</h1>
+            <p>Bienvenido al simulador.</p>
+            
+            <div class="control-group">
+                <label for="numRotors">Seleccione número de rotores:</label>
+                <select id="numRotors">
+                    <option value="3">3 Rotores</option>
+                    <option value="4">4 Rotores</option>
+                    <option value="5">5 Rotores</option>
+                </select>
+            </div>
+
+            <button onclick="goToMainView()">Continuar</button>
+        </div>
+
+        <div id="view-main" class="hidden">
+            <h2>Configuración de Máquina</h2>
+            
+            <div id="rotorsContainer" class="control-group">
+                <label>Seleccione Rotores (Izq a Der):</label>
+                <div class="rotor-selector-container" id="rotorSelectors">
+                    </div>
+                <div id="rotorError" class="error">No puede repetir rotores.</div>
+            </div>
+
+            <div class="control-group">
+                <label for="inputText">Texto a Encriptar:</label>
+                <input type="text" id="inputText" placeholder="Ingrese texto (A-Z)..." oninput="this.value = this.value.toUpperCase()">
+            </div>
+
+            <button onclick="runEncryption()">ENCRIPTAR</button>
+
+            <div class="control-group">
+                <label>Resultado:</label>
+                <div id="outputLabel"></div>
+            </div>
+            
+            <button onclick="resetView()" style="background-color: #7f8c8d; margin-top: 10px;">Reiniciar Configuración</button>
+        </div>
+    </div>
+
+    <script>
+        // --- DATA DE LA MÁQUINA ENIGMA ---
+        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        
+        // Definición de Rotores (Wiring y Notch)
+        const rotorsData = {
+            'I':   { wiring: "EKMFLGDQVZNTOWYHXUSPAIBRCJ", notch: 'Q' },
+            'II':  { wiring: "AJDKSIRUXBLHWTMCQGZNPYFVOE", notch: 'E' },
+            'III': { wiring: "BDFHJLCPRTXVZNYEIWGAKMUSQO", notch: 'V' },
+            'IV':  { wiring: "ESOVPZJAYQUIRHXLNFTGKDCMWB", notch: 'J' },
+            'V':   { wiring: "VZBRGITYUPSDNHLXAWMJQOFEKC", notch: 'Z' }
+        };
+
+        // Reflector B (Hardcoded según requerimiento: YRUHQSLDPXNGOKMIEBFZCWVJAT)
+        const reflectorWiring = "YRUHQSLDPXNGOKMIEBFZCWVJAT";
+
+        let selectedRotorCount = 3;
+
+        // --- LÓGICA DE UI ---
+
+        function goToMainView() {
+            const select = document.getElementById('numRotors');
+            selectedRotorCount = parseInt(select.value);
+            
+            generateRotorSelectors(selectedRotorCount);
+
+            document.getElementById('view-setup').classList.add('hidden');
+            document.getElementById('view-main').classList.remove('hidden');
+        }
+
+        function resetView() {
+            document.getElementById('inputText').value = "";
+            document.getElementById('outputLabel').innerText = "";
+            document.getElementById('view-main').classList.add('hidden');
+            document.getElementById('view-setup').classList.remove('hidden');
+        }
+
+        function generateRotorSelectors(count) {
+            const container = document.getElementById('rotorSelectors');
+            container.innerHTML = '';
+            
+            const romanNumerals = ['I', 'II', 'III', 'IV', 'V'];
+
+            for (let i = 0; i < count; i++) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'rotor-select-wrapper';
+                
+                const select = document.createElement('select');
+                select.className = 'rotor-choice';
+                select.id = `rotor-${i}`;
+                
+                romanNumerals.forEach(roman => {
+                    const option = document.createElement('option');
+                    option.value = roman;
+                    option.text = `Rotor ${roman}`;
+                    // Preseleccionar diferentes para evitar colisiones por defecto
+                    if (romanNumerals.indexOf(roman) === i) option.selected = true;
+                    select.appendChild(option);
+                });
+
+                wrapper.appendChild(select);
+                container.appendChild(wrapper);
+            }
+        }
+
+        // --- LÓGICA ENIGMA ---
+
+        // Función auxiliar: Convertir Letra a Índice (0-25)
+        function l2i(letter) {
+            return letter.charCodeAt(0) - 65;
+        }
+
+        // Función auxiliar: Convertir Índice a Letra
+        function i2l(index) {
+            // Asegurar que el índice sea positivo (módulo correcto)
+            const n = 26;
+            return String.fromCharCode(((index % n) + n) % n + 65);
+        }
+
+        function runEncryption() {
+            const input = document.getElementById('inputText').value;
+            const errorDiv = document.getElementById('rotorError');
+            const outputDiv = document.getElementById('outputLabel');
+            
+            // 1. Obtener rotores seleccionados
+            const selects = document.querySelectorAll('.rotor-choice');
+            let selectedRotorsKeys = [];
+            selects.forEach(s => selectedRotorsKeys.push(s.value));
+
+            // 2. Validar duplicados
+            const unique = new Set(selectedRotorsKeys);
+            if (unique.size !== selectedRotorsKeys.length) {
+                errorDiv.style.display = 'block';
+                outputDiv.innerText = "ERROR";
+                return;
+            } else {
+                errorDiv.style.display = 'none';
+            }
+
+            // 3. Preparar estado de los rotores
+            // Creamos objetos para simular el estado actual (posición)
+            // Nota: En esta UI simple, reiniciamos la posición a 'A' (0) cada vez que se pulsa Encriptar.
+            let activeRotors = selectedRotorsKeys.map(key => {
+                return {
+                    wiring: rotorsData[key].wiring,
+                    notch: l2i(rotorsData[key].notch),
+                    position: 0 // Posición inicial 'A'
+                };
+            });
+
+            // Invertir el array para que index 0 sea el rotor rápido (derecha) y index N sea el lento (izquierda)
+            // Esto facilita la lógica de stepping.
+            // UI: [Lento] [Medio] [Rápido] -> Array JS: [Rápido, Medio, Lento]
+            activeRotors.reverse();
+
+            let result = "";
+
+            // 4. Procesar caracter por caracter
+            for (let i = 0; i < input.length; i++) {
+                let char = input[i];
+                if (!/[A-Z]/.test(char)) {
+                    continue; // Ignorar espacios o símbolos
+                }
+
+                // A. AVANZAR ROTORES (Stepping)
+                stepRotors(activeRotors);
+
+                // B. FLUJO DE SEÑAL
+                let signal = l2i(char);
+
+                // 1. Pasada de Ida (Derecha a Izquierda) -> Rotores
+                for (let r = 0; r < activeRotors.length; r++) {
+                    signal = passThroughRotor(signal, activeRotors[r], false);
+                }
+
+                // 2. Reflector
+                signal = passThroughReflector(signal, reflectorWiring);
+
+                // 3. Pasada de Vuelta (Izquierda a Derecha) -> Rotores Inversos
+                for (let r = activeRotors.length - 1; r >= 0; r--) {
+                    signal = passThroughRotor(signal, activeRotors[r], true);
+                }
+
+                result += i2l(signal);
+            }
+
+            outputDiv.innerText = result;
+        }
+
+        function stepRotors(rotors) {
+            // Lógica de cascada simplificada para N rotores.
+            // El rotor[0] es el Rápido (Derecha).
+            
+            // Determinar quiénes giran
+            let rotateFlags = new Array(rotors.length).fill(false);
+            
+            // El rotor derecho siempre gira
+            rotateFlags[0] = true;
+
+            // Comprobar muescas para rotores siguientes
+            // Nota: La Enigma real tiene "Double Step" en el rotor medio.
+            // Aquí aplicamos lógica estándar de acarreo para N rotores:
+            // Si el rotor actual está en notch y va a girar, empuja al siguiente.
+            
+            for (let i = 0; i < rotors.length - 1; i++) {
+                // Si el rotor actual está en su notch...
+                if (rotors[i].position === rotors[i].notch) {
+                    // Y es el rotor rápido (siempre gira) O fue empujado...
+                    if (rotateFlags[i]) {
+                        rotateFlags[i+1] = true;
+                        
+                        // Lógica "Double Stepping" de Enigma:
+                        // Si el rotor medio (i+1) está en su notch, también gira (ya marcado arriba)
+                        // pero TAMBIÉN avanza él mismo en el siguiente paso.
+                        // Para simplificar en N > 3, usamos acarreo simple tipo odómetro 
+                        // pero respetando que la muesca está en el anillo.
+                    }
+                }
+            }
+
+            // Aplicar rotaciones
+            for (let i = 0; i < rotors.length; i++) {
+                if (rotateFlags[i]) {
+                    rotors[i].position = (rotors[i].position + 1) % 26;
+                }
+            }
+        }
+
+        function passThroughRotor(inputIndex, rotor, isInverse) {
+            const offset = rotor.position;
+            
+            // Entrar al rotor ajustando por el desplazamiento del anillo (offset)
+            let indexIn = (inputIndex + offset) % 26;
+            
+            let indexOut;
+            if (!isInverse) {
+                // Mapeo directo: A -> wiring[0]
+                const charMap = rotor.wiring[indexIn];
+                indexOut = l2i(charMap);
+            } else {
+                // Mapeo inverso: buscar dónde está la letra en el wiring
+                const charToFind = i2l(indexIn);
+                indexOut = rotor.wiring.indexOf(charToFind);
+            }
+
+            // Salir del rotor restando el desplazamiento
+            return (indexOut - offset + 26) % 26;
+        }
+
+        function passThroughReflector(inputIndex, wiring) {
+            const charMap = wiring[inputIndex];
+            return l2i(charMap);
+        }
+
+    </script>
+</body>
+</html>
